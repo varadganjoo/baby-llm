@@ -18,10 +18,10 @@ class BabyEmbeddings:
         self,
         *,
         dim: int = 64,
-        base_learning_rate: float = 0.05,
+        base_learning_rate: float = 0.08,  # Increased from 0.05
         decay: float = 0.99,
-        window: int = 2,
-        negative_samples: int = 2,
+        window: int = 4,  # Increased from 2
+        negative_samples: int = 5,  # Increased from 2
         rng_seed: Optional[int] = None,
     ) -> None:
         self.dim = dim
@@ -114,10 +114,12 @@ class BabyEmbeddings:
 
     def _learning_rate_for(self, token: str) -> float:
         count = self.counts.get(token, 1)
-        return self.base_learning_rate / math.sqrt(count)
+        # Slower decay than sqrt (power 0.4) to keep learning active longer
+        return self.base_learning_rate / (count ** 0.4)
 
     def _context_weight(self, distance: int) -> float:
-        return 1.0 / (distance or 1)
+        # Smoother distance penalty
+        return 1.0 / (distance ** 0.5)
 
     def _ensure_vector(self, token: str) -> Vector:
         if token not in self.vectors:
