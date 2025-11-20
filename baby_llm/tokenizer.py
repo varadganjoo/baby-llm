@@ -13,9 +13,10 @@ def tokenize(text: str) -> List[str]:
     tokens = []
     for match in TOKEN_RE.finditer(text):
         token = match.group(0)
-        if token.isalpha() or token.isalnum() or token == "'":
+        # Only keep words (letters) or specific punctuation. Skip numbers.
+        if token.replace("'", "").isalpha():
             tokens.append(token.lower())
-        else:
+        elif token in {".", ",", "!", "?", ";", ":", '"', "-", "(", ")"}:
             tokens.append(token)
     return tokens
 
