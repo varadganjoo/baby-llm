@@ -65,10 +65,22 @@ class BabyLanguageModel:
             self.memory.add(tokens)
             self._append_log(text)
             self.embeddings.observe_sequence(tokens)
-            self._train_rnn_head(tokens)
+            
+            # Train RNN head multiple times on fresh data to sink it in
+            for _ in range(3):
+                self._train_rnn_head(tokens)
+                
         processed = self._train_on_tokens(tokens)
         if processed:
             self.turns_seen += 1
+            
+            # Periodic replay to consolidate memory (sample random subset)
+            if self.turns_seen % 10 == 0 and len(self.memory) > 0:
+                all_sequences = self.memory.sequences()
+                sample_size = min(len(all_sequences), 16)
+                for seq in self._rng.sample(all_sequences, sample_size):
+                    self._train_rnn_head(seq)
+                    
         return processed
 
     def _train_on_tokens(self, tokens: Iterable[str]) -> int:
@@ -191,6 +203,11 @@ class BabyLanguageModel:
             )
             if not nxt:
                 break
+            
+            # Simple anti-repetition: stop if we repeat the same word 3 times
+            if len(generated) >= 2 and generated[-1] == nxt and generated[-2] == nxt:
+                break
+                
             generated.append(nxt)
         return generated
 
@@ -239,6 +256,7 @@ class BabyLanguageModel:
         *,
         topic_vector: Optional[Vector],
         head_vector: Optional[Vector],
+        temperature: float = 0.7,
     ) -> Optional[str]:
         if not counter:
             return None
@@ -246,7 +264,10 @@ class BabyLanguageModel:
         for word, count in counter.items():
             if count <= 0:
                 continue
+            # Base logit from frequency
             logit = math.log(float(count))
+            
+            # Add vector bonuses
             if topic_vector is not None:
                 logit += self._topic_bonus * self.embeddings.similarity(
                     word, topic_vector
@@ -256,15 +277,22 @@ class BabyLanguageModel:
                     word, head_vector
                 )
             logits.append((word, logit))
+            
         if not logits:
             return None
+            
+        # Apply temperature scaling
+        # Higher temp -> more random, Lower temp -> more deterministic
         max_logit = max(logit for _, logit in logits)
         exp_values = [
-            (word, math.exp(logit - max_logit)) for word, logit in logits
+            (word, math.exp((logit - max_logit) / temperature)) 
+            for word, logit in logits
         ]
+        
         total = sum(value for _, value in exp_values)
         if total <= 0:
             return None
+            
         pick = self._rng.uniform(0, total)
         cumulative = 0.0
         for word, value in exp_values:
